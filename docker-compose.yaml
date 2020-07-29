@@ -1,0 +1,132 @@
+version: '3'
+services:
+  jenkins:
+    image: jenkins/jenkins:lts
+    container_name: jenkins-container
+    restart: always
+    expose:
+      - 8080
+    ports:
+      - "8080:8080"
+      - "50000:50000"
+    networks:
+      - devopsnet
+    environment:
+      - "JENKINS_OPTS=--prefix=/jenkins"
+    volumes:
+#      - '/var/run/docker.sock:/var/run/docker.sock'
+      - jenkins_home:/var/jenkins_home
+
+  sonarqube:
+    image: sonarqube:8.4.1-community
+    container_name: sonarqube-container
+    expose:
+      - 9000
+    ports:
+      - "9000:9000"
+    depends_on:
+    - sonar_db
+    networks:
+      - devopsnet
+    environment:
+      - SONARQUBE_JDBC_URL=jdbc:postgresql://sonar_db:5432/sonar
+      - SONARQUBE_JDBC_USERNAME=sonar
+      - SONARQUBE_JDBC_PASSWORD=sonar
+    volumes:
+      - sonarqube_conf:/opt/sonarqube/conf
+      - sonarqube_data:/opt/sonarqube/data
+      - sonarqube_extensions:/opt/sonarqube/extensions
+      - sonarqube_bundled-plugins:/opt/sonarqube/lib/bundled-plugins
+
+  sonar_db:
+    image: postgres:11.8-alpine
+    container_name: sonarqube_db-container
+    networks:
+      - devopsnet
+    environment:
+      - POSTGRES_USER=sonar
+      - POSTGRES_PASSWORD=sonar
+    volumes:
+      - postgresql:/var/lib/postgresql
+      - postgresql_data:/var/lib/postgresql/data
+
+  artifactory:
+    image: ${DOCKER_REGISTRY}/jfrog/artifactory-oss:${ARTIFACTORY_VERSION}
+    container_name: artifactory-container
+    volumes:
+     - artifactory_data:/var/opt/jfrog/artifactory
+     - /etc/localtime:/etc/localtime:ro
+    restart: always
+    depends_on:
+    - artifactory_db
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 32000
+        hard: 40000
+    networks:
+        devopsnet:
+            ipv4_address: "172.18.0.6"
+    environment:
+     - ENABLE_MIGRATION=y
+     - JF_SHARED_DATABASE_TYPE=postgresql
+     # The following must match the POSTGRES_USER and POSTGRES_PASSWORD values passed to PostgreSQL
+     - JF_SHARED_DATABASE_USERNAME=artifactory
+     - JF_SHARED_DATABASE_PASSWORD=password
+     - JF_SHARED_DATABASE_URL=jdbc:postgresql://artifactory_db:5432/artifactory
+     - JF_SHARED_DATABASE_DRIVER=org.postgresql.Driver
+     - JF_SHARED_NODE_IP=${JF_SHARED_NODE_IP}
+     - JF_SHARED_NODE_ID=${JF_SHARED_NODE_ID}
+     - JF_SHARED_NODE_NAME=${JF_SHARED_NODE_NAME}
+     - JF_ROUTER_ENTRYPOINTS_EXTERNALPORT=${JF_ROUTER_ENTRYPOINTS_EXTERNALPORT}
+    ports:
+      - ${JF_ROUTER_ENTRYPOINTS_EXTERNALPORT}:${JF_ROUTER_ENTRYPOINTS_EXTERNALPORT} # for router communication
+      - 8081:8081 # for artifactory communication
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "10"
+
+  artifactory_db:
+    image: ${DOCKER_REGISTRY}/postgres:10.13-alpine
+    container_name: artifactory_db-container
+    networks:
+      - devopsnet
+    environment:
+     - POSTGRES_DB=artifactory
+     - POSTGRES_USER=artifactory
+     - POSTGRES_PASSWORD=password
+    ports:
+      - 5432:5432
+    volumes:
+     - postgres_art_data:/var/lib/postgresql/data
+     - /etc/localtime:/etc/localtime:ro
+    restart: always
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "10"
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 32000
+        hard: 40000
+networks:
+  devopsnet:
+    ipam:
+      config:
+        - subnet: 172.18.0.0/24
+volumes:
+  artifactory_data:
+    external: true
+  postgres_art_data:
+    external: true
+  sonarqube_conf:
+  sonarqube_data:
+  sonarqube_extensions:
+  sonarqube_bundled-plugins:
+  postgresql:
+  postgresql_data:
+  jenkins_home:
